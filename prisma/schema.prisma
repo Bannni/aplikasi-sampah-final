@@ -1,0 +1,237 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  WARGA
+  PETUGAS
+  ADMIN
+}
+
+// ============================================
+// USER
+// ============================================
+model User {
+  id        String   @id @default(uuid())
+  nama      String
+  email     String   @unique
+  noHp      String   @unique
+  nik       String   @unique
+  role      Role     @default(WARGA)
+  password  String   @default("123456")
+  poin      Int      @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  laporanSampah    LaporanSampah[]     @relation("WargaLaporan")
+  tugasPenjemputan LaporanSampah[]     @relation("PetugasLaporan")
+  transaksiReward  TransaksiReward[]
+  ulasanDikirim    UlasanPenjemputan[] @relation("WargaUlasan")
+  ulasanDiterima   UlasanPenjemputan[] @relation("PetugasUlasan")
+  notifikasi       Notifikasi[]
+
+  @@unique([email, noHp])
+  @@map("users")
+}
+
+// ============================================
+// JENIS SAMPAH
+// ============================================
+model JenisSampah {
+  id          String   @id @default(uuid())
+  namaJenis   String   @unique
+  deskripsi   String?
+  poinPerKg   Int      @default(100)
+  icon        String   @default("Recycle")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  laporanSampah LaporanSampah[]
+
+  @@map("jenis_sampah")
+}
+
+// ============================================
+// WILAYAH
+// ============================================
+model Wilayah {
+  id          String   @id @default(uuid())
+  namaWilayah String   @unique
+  kodeWilayah String?  @unique
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  laporanSampah LaporanSampah[]
+  jadwal        JadwalWilayah[]
+
+  @@map("wilayah")
+}
+
+// ============================================
+// LAPORAN SAMPAH
+// ============================================
+model LaporanSampah {
+  id             String    @id @default(uuid())
+  berat          Float
+  beratAktual    Float?
+  tanggalLapor   DateTime  @default(now())
+  tanggalSelesai DateTime?
+  deskripsi      String?
+  catatanPetugas String?
+  fotoUrl        String?
+  poinDiperoleh  Int       @default(0)
+  status         String    @default("PENDING") // PENDING, VERIFIED, PROCESSED, DONE, CANCELLED
+  alamatLengkap  String?
+  
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  userId         String
+  petugasId      String?
+  jenisSampahId  String
+  wilayahId      String
+  
+  user           User               @relation("WargaLaporan", fields: [userId], references: [id], onDelete: Cascade)
+  petugas        User?              @relation("PetugasLaporan", fields: [petugasId], references: [id], onDelete: SetNull)
+  jenisSampah    JenisSampah        @relation(fields: [jenisSampahId], references: [id], onDelete: Restrict)
+  wilayah        Wilayah            @relation(fields: [wilayahId], references: [id], onDelete: Restrict)
+  
+  fotoSampah     FotoSampah?
+  ulasan         UlasanPenjemputan?
+  notifikasi     Notifikasi[]
+  
+  @@map("laporan_sampah")
+  @@index([userId])
+  @@index([petugasId])
+  @@index([jenisSampahId])
+  @@index([wilayahId])
+  @@index([status])
+}
+
+// ============================================
+// FOTO SAMPAH (One-to-One dengan LaporanSampah)
+// ============================================
+model FotoSampah {
+  id        String   @id @default(uuid())
+  fotoUrl   String
+  laporanId String   @unique
+  createdAt DateTime @default(now())
+
+  laporan   LaporanSampah @relation(fields: [laporanId], references: [id], onDelete: Cascade)
+
+  @@map("foto_sampah")
+}
+
+// ============================================
+// REWARD CATALOG
+// ============================================
+model RewardCatalog {
+  id         String   @id @default(uuid())
+  namaReward String
+  deskripsi  String
+  biayaPoin  Int
+  kategori   String   // VOUCHER, PULSA, SEMBAKO, CASH
+  stok       Int      @default(100)
+  imageUrl   String?
+  createdAt  DateTime @default(now())
+
+  transaksi  TransaksiReward[]
+
+  @@map("reward_catalog")
+}
+
+// ============================================
+// TRANSAKSI REWARD
+// ============================================
+model TransaksiReward {
+  id         String   @id @default(uuid())
+  kodeKupon  String?  @unique
+  noHpTujuan String?
+  biayaPoin  Int
+  status     String   @default("PENDING") // PENDING, PROCESSED, DONE, CANCELLED
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  userId     String
+  rewardId   String
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reward     RewardCatalog @relation(fields: [rewardId], references: [id], onDelete: Restrict)
+
+  @@map("transaksi_reward")
+  @@index([userId])
+  @@index([rewardId])
+  @@index([status])
+}
+
+// ============================================
+// ULASAN & RATING PENJEMPUTAN (One-to-One dengan LaporanSampah)
+// ============================================
+model UlasanPenjemputan {
+  id        String   @id @default(uuid())
+  rating    Int      // 1 to 5
+  komentar  String?
+  createdAt DateTime @default(now())
+
+  laporanId String   @unique
+  userId    String
+  petugasId String
+
+  laporan   LaporanSampah @relation(fields: [laporanId], references: [id], onDelete: Cascade)
+  user      User          @relation("WargaUlasan", fields: [userId], references: [id], onDelete: Cascade)
+  petugas   User          @relation("PetugasUlasan", fields: [petugasId], references: [id], onDelete: Cascade)
+
+  @@map("ulasan_penjemputan")
+  @@index([userId])
+  @@index([petugasId])
+}
+
+// ============================================
+// JADWAL WILAYAH OPERASIONAL
+// ============================================
+model JadwalWilayah {
+  id         String   @id @default(uuid())
+  hari       String   // Senin, Selasa, Rabu, Kamis, Jumat, Sabtu, Minggu
+  jamMulai   String   // e.g. "08:00"
+  jamSelesai String   // e.g. "12:00"
+  kuotaMaks  Int      @default(50)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  wilayahId  String
+
+  wilayah    Wilayah  @relation(fields: [wilayahId], references: [id], onDelete: Cascade)
+
+  @@map("jadwal_wilayah")
+  @@unique([wilayahId, hari])
+  @@index([wilayahId])
+}
+
+// ============================================
+// NOTIFIKASI PENGGUNA
+// ============================================
+model Notifikasi {
+  id        String   @id @default(uuid())
+  judul     String
+  pesan     String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId    String
+  laporanId String?
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laporan   LaporanSampah? @relation(fields: [laporanId], references: [id], onDelete: SetNull)
+
+  @@map("notifikasi")
+  @@index([userId])
+  @@index([isRead])
+}
